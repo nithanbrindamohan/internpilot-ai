@@ -1,0 +1,41 @@
+INTERNPILOT AI — MULTI-USER, INVITE-ONLY MVP
+
+What this update does:
+- Adds registration and login with salted PBKDF2 password hashes.
+- Issues signed, expiring bearer tokens.
+- Stores each user's profile, skills and extracted resume text separately.
+- Stores each application with a user_id and filters every application query by that user.
+- Keeps shared job listings in the common jobs table.
+- Adds private PDF/DOCX/TXT resume uploads (5 MB limit).
+- Uses the signed-in user's own profile/resume for AI matching and cover letters.
+- Keeps OpenAI credentials on the backend only.
+- Requires a single-use invitation code for new accounts; existing users can sign in normally.
+- Supports public job feeds from Greenhouse, Lever, Ashby and Workday.
+- Configures 71 employer-board endpoints across 69 employer names, with scheduled refresh,
+  per-source health tracking, duplicate collapse, and safe stale-listing retirement.
+- Does not auto-submit applications.
+
+IMPORTANT BEFORE FIRST RUN:
+1. Back up backend/internpilot.db if it exists.
+2. The old single global profile in profile.py is no longer used for personalized actions.
+3. Old applications from the single-user MVP have NULL user_id and are intentionally not exposed to any new account.
+4. Generate a strong TOKEN_SECRET and set it in backend/.env.
+5. Configure OPENAI_API_KEY in backend/.env. Never put it in frontend files.
+6. Run `python -m app.check_sources` from backend/ to verify the configured employer feeds from your own computer.
+7. See JOB_DISCOVERY_SETUP.md for employer coverage, scheduler settings and known limitations.
+
+LIMITATIONS BEFORE PUBLIC LAUNCH:
+- This is an MVP, not a fully production-hardened service.
+- Add email verification, password reset, rate limiting, abuse monitoring, privacy policy,
+  terms, retention/deletion workflows, backups, HTTPS, secure HttpOnly cookie sessions or
+  equivalent XSS protections, and managed cloud database/object storage before opening
+  registration publicly.
+- The browser stores a bearer token in localStorage for this development MVP.
+- SQLite and local private_uploads are suitable for local testing, not multi-instance
+  public hosting. Move to managed PostgreSQL and private object storage for deployment.
+- Restrict CORS to the deployed frontend domain in production.
+- The scheduled sync currently runs in the API process. Use a single dedicated scheduler
+  or external scheduled task for a multi-worker production deployment.
+- The 71 configured board endpoints must be checked live from the deployment environment;
+  an employer may have an empty board, change its ATS, or block requests.
+- Provide users with account deletion/export before public launch.

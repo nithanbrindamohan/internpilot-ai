@@ -1,0 +1,24 @@
+INTERNPILOT AI — INVITE-ONLY ACCESS
+
+Who can use the site?
+Anyone you choose to invite. There is no TMU, university, country, or employer restriction.
+
+How access works:
+- You generate invitation codes on the backend you control.
+- You send each code privately to one person.
+- A new user enters the code during registration.
+- Each code is single-use and is consumed when registration succeeds.
+- Existing users can sign in normally without a new code.
+- There is no public endpoint for creating invitation codes.
+
+Generate five codes (run from the backend folder with your virtual environment active):
+  python -m app.create_invite --count 5
+
+Generate one code with an internal note:
+  python -m app.create_invite --count 1 --note "early access tester"
+
+Codes are printed once. Save them securely and send each to one intended user. The database
+stores only SHA-256 hashes of codes. If a code is lost or used, generate another.
+
+IMPORTANT: This package is a local development MVP, not a production-ready public service.
+See NEXT_STEPS.md before inviting real users or deploying publicly.
