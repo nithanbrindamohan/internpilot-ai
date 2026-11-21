@@ -73,6 +73,21 @@ for token, company in [
 ]:
     _add("lever", token, company)
 
+# Additional Toronto/GTA employers with publicly discoverable student engineering postings.
+# These are candidate feed identifiers, NOT a claim that every feed is currently healthy.
+for token, company in [
+    ("harvey", "Harvey"), ("generalmagic", "General Magic"),
+    ("micromart", "Micromart"), ("steel", "Steel"),
+    ("bree", "Bree"), ("pebl", "Pebl"),
+    ("human-computer-lab", "Human Computer Lab"),
+    ("trexo robotics", "Trexo Robotics"),
+    ("olix", "OLIX"), ("georgian", "Georgian"),
+]:
+    _add("ashby", token, company)
+
+for token, company in [("kepler", "Kepler Communications"), ("bosonai", "Boson AI")]:
+    _add("lever", token, company)
+
 # Workday public job-search endpoints (the public site remains the apply URL).
 for company, endpoint, site_url in [
     ("Royal Bank of Canada", "https://rbc.wd3.myworkdayjobs.com/wday/cxs/rbc/RBCEARLYTALENT1/jobs", "https://rbc.wd3.myworkdayjobs.com/en-US/RBCEARLYTALENT1"),
@@ -185,7 +200,7 @@ def fetch_lever(source: dict) -> list[dict]:
         cats = item.get("categories") or {}
         job = _base(source, item.get("text"), cats.get("location"), item.get("hostedUrl"),
                     item.get("descriptionPlain") or item.get("description"), item.get("createdAt"),
-                    cats.get("commitment") or item.get("workplaceType", ""))
+                    " ".join(str(x) for x in (cats.get("commitment"), item.get("workplaceType")) if x))
         if job:
             jobs.append(job)
     return jobs
@@ -206,7 +221,7 @@ def fetch_ashby(source: dict) -> list[dict]:
         job = _base(source, item.get("title"), location,
                     item.get("jobUrl") or item.get("applyUrl"),
                     item.get("descriptionPlain") or item.get("descriptionHtml"),
-                    item.get("publishedAt"), item.get("employmentType") or item.get("workplaceType", ""))
+                    item.get("publishedAt"), " ".join(str(x) for x in (item.get("employmentType"), item.get("workplaceType")) if x))
         if job:
             jobs.append(job)
     return jobs

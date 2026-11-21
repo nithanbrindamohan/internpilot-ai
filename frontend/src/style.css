@@ -14,3 +14,14 @@
   border-bottom:1px solid #e5e7eb; padding:12px 0; }
 .handoff-list a { display:flex; align-items:center; gap:6px; }
 @media (max-width:700px) { .bulk-panel,.handoff-list > div {flex-direction:column;align-items:stretch;} }
+
+/* GTA engineering discovery and filtering */
+.geo-filters { margin: 12px 0 18px; }
+.geo-filters h3 { margin-bottom: 6px; }
+.geo-filter-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-top:15px; }
+.geo-filter-grid label { display:flex; flex-direction:column; gap:6px; font-size:12px; font-weight:600; color:#435246; }
+.geo-filter-grid select { width:100%; padding:10px 8px; background:white; border-radius:8px; border:1px solid #d8e1d9; color:#273c2f; }
+.geo-filter-actions { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-top:12px; color:#526357; font-size:12px; }
+.job-metadata { color:#526f5b!important; font-size:12px!important; margin-top:7px!important; text-transform:capitalize; }
+@media(max-width:900px){.geo-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media(max-width:560px){.geo-filter-grid{grid-template-columns:1fr;}}

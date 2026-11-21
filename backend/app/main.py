@@ -21,6 +21,7 @@ from pydantic import BaseModel, EmailStr, Field
 from .db import connect, init_db
 from .sources import discover_jobs, source_inventory
 from .matching import score_job, is_relevant
+from .job_filters import enrich_job, matches_filters
 from .auth import hash_password, verify_password, create_token, current_user
 
 app = FastAPI(title="InternPilot AI", version="0.2.0")
@@ -276,16 +277,38 @@ def discover_status(user_id: int = Depends(current_user)):
             "active_jobs": active_count, "sources": [dict(row) for row in rows]}
 
 @app.get("/api/jobs")
-def jobs(q: str = "", min_score: int = 0, user_id: int = Depends(current_user)):
+def jobs(q: str = "", min_score: int = 0, region: str = "all", discipline: str = "all",
+         work_mode: str = "all", term: str = "all", city: str = "all", user_id: int = Depends(current_user)):
+    """Filter relevant roles with explicit GTA, field and start-term metadata.
+
+    Unknown term/work arrangement is never guessed. Personalized AI matching
+    data on shared job records is intentionally excluded from this response.
+    """
+    allowed_region = {"all", "gta", "waterloo", "ontario_other", "remote_canada", "canada_other", "unknown", "other"}
+    allowed_discipline = {"all", "software", "mechanical", "electrical", "civil", "mechatronics", "data_ai", "chemical", "aerospace", "general", "other"}
+    allowed_mode = {"all", "remote", "hybrid", "onsite", "unspecified"}
+    if region not in allowed_region or discipline not in allowed_discipline or work_mode not in allowed_mode:
+        raise HTTPException(422, "Invalid job filter.")
+    allowed_city = {"all", "toronto", "north york", "scarborough", "etobicoke", "vaughan",
+                    "richmond hill", "markham", "mississauga", "brampton", "oakville",
+                    "burlington", "oshawa", "pickering", "ajax", "whitby", "milton"}
+    if city not in allowed_city:
+        raise HTTPException(422, "Invalid city filter.")
+    if term != "all" and not re.fullmatch(r"(?:winter|spring|summer|fall)-20\d{2}", term):
+        raise HTTPException(422, "Invalid internship term.")
     profile = full_profile(user_id)
     with connect() as db:
         rows = db.execute("""SELECT id,source,company,title,location,url,posted_at,employment_type,
-            description,ai_match_score,match_explanation,matched_skills FROM jobs
+            description FROM jobs
             WHERE is_active=1 AND (title LIKE ? OR company LIKE ? OR location LIKE ?)
             ORDER BY posted_at DESC""", (f"%{q}%", f"%{q}%", f"%{q}%")).fetchall()
     result = []
     for row in rows:
-        item = dict(row)
+        item = enrich_job(dict(row))
+        if not matches_filters(item, region, discipline, work_mode, term):
+            continue
+        if city != "all" and not re.search(r"(?<![a-z])" + re.escape(city) + r"(?![a-z])", (item.get("location") or "").lower()):
+            continue
         item["match_score"] = score_job(item, profile)
         item.pop("description", None)
         if item["match_score"] >= min_score:

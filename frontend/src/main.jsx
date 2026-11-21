@@ -17,6 +17,9 @@ function App() {
   const [jobs,setJobs] = useState([]), [apps,setApps] = useState([]);
   const [sourceStatus,setSourceStatus] = useState(null);
   const [query,setQuery] = useState(''), [minScore,setMinScore] = useState(0);
+  const [region,setRegion] = useState('gta'), [discipline,setDiscipline] = useState('all');
+  const [workMode,setWorkMode] = useState('all'), [term,setTerm] = useState('all');
+  const [city,setCity] = useState('all');
   const [loading,setLoading] = useState(false), [notice,setNotice] = useState('');
   const [selected,setSelected] = useState(null), [letter,setLetter] = useState('');
   const [busy,setBusy] = useState(false), [aiResult,setAiResult] = useState(null);
@@ -39,13 +42,13 @@ function App() {
   }
   async function loadDashboard() {
     const [j,a,p,s] = await Promise.all([
-      request(`/api/jobs?q=${encodeURIComponent(query)}&min_score=${minScore}`),
+      request(`/api/jobs?${new URLSearchParams({q:query,min_score:String(minScore),region,discipline,work_mode:workMode,term,city}).toString()}`),
       request('/api/applications'), request('/api/profile'), request('/api/discover/status')
     ]);
     setJobs(j); setApps(a); setUser(p); setSourceStatus(s);
     setProfile(p); setSkillsText((p.skills || []).join(', '));
   }
-  useEffect(()=>{ if(token) loadDashboard().catch(e=>setNotice(e.message)); },[token,query,minScore]);
+  useEffect(()=>{ if(token) loadDashboard().catch(e=>setNotice(e.message)); },[token,query,minScore,region,discipline,workMode,term,city]);
 
   async function submitAuth(e) {
     e.preventDefault(); setBusy(true); setNotice('');
@@ -170,8 +173,40 @@ function App() {
       <form className="upload-row" onSubmit={uploadResume}><div><strong><Upload size={16}/> Resume</strong><p>{user?.has_resume?'A resume is saved to your private account.':'Upload PDF, DOCX or TXT (max 5 MB).'}</p></div><input type="file" accept=".pdf,.docx,.txt" onChange={e=>setResume(e.target.files?.[0]||null)}/><button className="secondary" disabled={busy||!resume}>Upload resume</button></form>
     </section>
     <section className="toolbar"><div><h3><BriefcaseBusiness size={19}/> Opportunity feed</h3><p>Match scores are calculated against your profile.</p></div><div className="filters"><label className="search"><Search size={16}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search title, company, location"/></label><select value={minScore} onChange={e=>setMinScore(Number(e.target.value))}><option value="0">All matches</option><option value="50">50%+ match</option><option value="70">70%+ match</option><option value="85">85%+ match</option></select></div></section>
+    <section className="panel geo-filters" aria-label="Internship filters">
+      <div><h3>Find internships near you</h3><p className="muted small">Toronto/GTA is selected by default. Filter by engineering field, where you would work, and the term listed in the posting. "Not specified" means the employer did not clearly state a start term.</p></div>
+      <div className="geo-filter-grid">
+        <label>Location <select aria-label="Location filter" value={region} onChange={e=>setRegion(e.target.value)}>
+          <option value="gta">Toronto &amp; GTA</option><option value="all">All locations</option>
+          <option value="waterloo">Waterloo / Kitchener / Guelph</option>
+          <option value="ontario_other">Other Ontario</option><option value="remote_canada">Remote Canada (no GTA city listed)</option>
+          <option value="canada_other">Other Canada</option><option value="unknown">Unknown location</option>
+        </select></label>
+        <label>GTA city <select aria-label="GTA city filter" value={city} onChange={e=>{setCity(e.target.value); if(e.target.value!=='all')setRegion('gta')}}>
+          <option value="all">All GTA cities</option>
+          {['Toronto','North York','Scarborough','Etobicoke','Vaughan','Richmond Hill','Markham','Mississauga','Brampton','Oakville','Burlington','Oshawa','Pickering','Ajax','Whitby','Milton'].map(name=><option key={name} value={name.toLowerCase()}>{name}</option>)}
+        </select></label>
+        <label>Engineering field <select aria-label="Engineering field filter" value={discipline} onChange={e=>setDiscipline(e.target.value)}>
+          <option value="all">All fields</option><option value="software">Software / Computing</option>
+          <option value="mechanical">Mechanical / Manufacturing</option><option value="electrical">Electrical / Hardware</option>
+          <option value="civil">Civil / Structural</option><option value="mechatronics">Mechatronics / Robotics</option>
+          <option value="data_ai">Data / AI</option><option value="chemical">Chemical / Materials</option>
+          <option value="aerospace">Aerospace</option><option value="general">General Engineering</option>
+          <option value="other">Other</option>
+        </select></label>
+        <label>Work arrangement <select aria-label="Work arrangement filter" value={workMode} onChange={e=>setWorkMode(e.target.value)}>
+          <option value="all">Any arrangement</option><option value="onsite">On-site</option><option value="hybrid">Hybrid</option>
+          <option value="remote">Remote</option><option value="unspecified">Not specified</option>
+        </select></label>
+        <label>Start term <select aria-label="Start term filter" value={term} onChange={e=>setTerm(e.target.value)}>
+          <option value="all">Any or unknown term</option>
+          {['2027','2028','2029','2030'].flatMap(year=>['winter','spring','summer','fall'].map(season=><option key={`${season}-${year}`} value={`${season}-${year}`}>{season.charAt(0).toUpperCase()+season.slice(1)} {year}</option>))}
+        </select></label>
+      </div>
+      <div className="geo-filter-actions"><span>{jobs.length} matching opportunities</span><button className="secondary" onClick={()=>{setQuery('');setMinScore(0);setRegion('all');setCity('all');setDiscipline('all');setWorkMode('all');setTerm('all')}}>Clear filters</button></div>
+    </section>
     <section className="bulk-panel"><div><strong>Bulk application preparation</strong><p>Select up to 10 internships below. This creates private drafts; no employer receives any application yet.</p></div><button className="primary" disabled={!bulkJobs.length||busy} onClick={prepareBulk}>Prepare {bulkJobs.length} selected</button></section>
-    <section className="joblist">{jobs.length===0?<div className="empty"><BriefcaseBusiness size={30}/><h3>No jobs yet</h3><p>Choose Discover internships to check the connected employer career boards. Listings refresh automatically every 6 hours.</p></div>:jobs.map(j=><article className="job" key={j.id}><label className="bulk-check"><input type="checkbox" checked={bulkJobs.includes(j.id)} disabled={!bulkJobs.includes(j.id)&&bulkJobs.length>=10} onChange={()=>toggleJob(j.id)}/> Select for bulk preparation</label><div className="jobtop"><div><h4>{j.title}</h4><p>{j.company} · {j.location||'Location not listed'}</p></div><span className="score">{j.match_score}% match</span></div>{j.match_explanation&&<p className="muted">{j.match_explanation}</p>}<div className="jobbottom"><span className="source">{j.source}</span><div><a href={j.url} target="_blank" rel="noreferrer">View posting <ExternalLink size={13}/></a><button className="secondary" onClick={()=>{setSelected(j);setLetter('');setAiResult(null)}}><FileText size={14}/> Prepare application</button></div></div></article>)}</section>
+    <section className="joblist">{jobs.length===0?<div className="empty"><BriefcaseBusiness size={30}/><h3>No matching internships</h3><p>Try clearing filters, changing the location to All locations, or choosing Discover internships to refresh employer boards. A new employer board may be unavailable or temporarily have no internships.</p></div>:jobs.map(j=><article className="job" key={j.id}><label className="bulk-check"><input type="checkbox" checked={bulkJobs.includes(j.id)} disabled={!bulkJobs.includes(j.id)&&bulkJobs.length>=10} onChange={()=>toggleJob(j.id)}/> Select for bulk preparation</label><div className="jobtop"><div><h4>{j.title}</h4><p>{j.company} · {j.location||'Location not listed'}</p><p className="job-metadata">{j.discipline?.replace('_',' / ')||'Engineering'} · {j.work_mode==='unspecified'?'Arrangement not specified':j.work_mode} · Start: {j.start_label||'Not specified'}</p></div><span className="score">{j.match_score}% match</span></div>{j.match_explanation&&<p className="muted">{j.match_explanation}</p>}<div className="jobbottom"><span className="source">{j.source}</span><div><a href={j.url} target="_blank" rel="noreferrer">View posting <ExternalLink size={13}/></a><button className="secondary" onClick={()=>{setSelected(j);setLetter('');setAiResult(null)}}><FileText size={14}/> Prepare application</button></div></div></article>)}</section>
     <section className="toolbar apphead"><div><h3><FileText size={19}/> Your application tracker</h3><p>Private to your account. Employer-site handoffs are not submitted applications.</p></div></section>
     <section className="bulk-panel"><div><strong>Review and approve employer-site handoffs</strong><p>Select up to 10 saved drafts below. Check each employer’s application questions and required documents. This feature opens employer posting links; it does not submit them for you.</p><label className="bulk-check"><input type="checkbox" checked={confirmReviewed} onChange={e=>setConfirmReviewed(e.target.checked)}/> I reviewed my selected applications and understand they are not submitted yet.</label></div><button className="primary" disabled={!bulkApps.length||!confirmReviewed||busy} onClick={approveBulkHandoff}>Approve {bulkApps.length} handoffs</button></section>
     {handoffs.length>0&&<section className="panel"><h3>Employer posting pages — application action needed</h3><p className="muted">Open each employer posting and follow its Apply instructions to finish the form. Only mark an application as submitted once the employer confirms receipt.</p><div className="handoff-list">{handoffs.map(h=><div key={h.application_id}><span>{h.company} — {h.title}</span><a href={h.apply_url} target="_blank" rel="noopener noreferrer">Open employer posting <ExternalLink size={14}/></a></div>)}</div></section>}

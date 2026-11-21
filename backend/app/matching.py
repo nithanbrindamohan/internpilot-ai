@@ -5,9 +5,13 @@ ROLE_TERMS = [
     "software", "developer", "programmer", "quality engineer", "qa engineer",
     "sdet", "test automation", "machine learning", "artificial intelligence",
     "data engineer", "full stack", "frontend", "front-end", "backend", "back-end",
-    "cloud engineer", "devops", "cybersecurity"
+    "cloud engineer", "devops", "cybersecurity",
+    "mechanical", "electrical", "electronics", "civil engineering", "structural",
+    "mechatronics", "robotics", "controls engineer", "manufacturing engineer",
+    "process engineer", "chemical engineer", "aerospace", "hardware engineer",
+    "embedded", "fpga", "engineering intern", "engineering co-op", "engineering student"
 ]
-STUDENT_TERMS = ["intern", "internship", "co-op", "coop", "student", "new grad", "early career"]
+STUDENT_TERMS = ["intern", "internship", "co-op", "coop", "student", "new grad", "early career", "summer student", "work term"]
 SENIOR_TERMS = ["senior", "staff engineer", "principal", "director", "vice president"]
 
 def _skills(profile):
@@ -25,7 +29,7 @@ def score_job(job, profile):
     if any(term in title for term in ROLE_TERMS): score += 30
     elif any(term in text for term in ROLE_TERMS): score += 18
     if any(term in text for term in STUDENT_TERMS): score += 25
-    if any(x in location for x in ["toronto", "ontario", "vaughan", "waterloo", "ottawa", "mississauga", "markham", "canada"]):
+    if any(x in location for x in ["toronto", "ontario", "vaughan", "waterloo", "ottawa", "mississauga", "markham", "brampton", "richmond hill", "oakville", "oshawa", "pickering", "canada"]):
         score += 25
     elif "remote" in location: score += 20
     skill_hits = sum(1 for skill in _skills(profile) if skill.lower() in text)
@@ -38,6 +42,6 @@ def is_relevant(job):
     text = title + " " + (job.get("description") or "").lower()
     location = (job.get("location") or "").lower()
     role = any(term in text for term in ROLE_TERMS)
-    region = any(x in location for x in ["ontario", "toronto", "vaughan", "waterloo", "ottawa", "mississauga", "markham", "canada", "remote"])
+    region = any(x in location for x in ["ontario", "toronto", "vaughan", "waterloo", "ottawa", "mississauga", "markham", "brampton", "richmond hill", "oakville", "oshawa", "pickering", "canada", "remote"])
     student = any(term in text for term in STUDENT_TERMS)
     return role and region and student
