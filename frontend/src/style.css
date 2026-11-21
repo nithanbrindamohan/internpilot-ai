@@ -25,3 +25,8 @@
 .job-metadata { color:#526f5b!important; font-size:12px!important; margin-top:7px!important; text-transform:capitalize; }
 @media(max-width:900px){.geo-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
 @media(max-width:560px){.geo-filter-grid{grid-template-columns:1fr;}}
+
+.review-modal{max-height:90vh;overflow-y:auto;max-width:760px;width:min(94vw,760px)}
+.review-modal .field{display:block;margin:12px 0}
+.review-modal .field input,.review-modal .field textarea{display:block;width:100%;box-sizing:border-box}
+.review-actions{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}

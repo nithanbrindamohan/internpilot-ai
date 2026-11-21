@@ -27,6 +27,9 @@ function App() {
   const [bulkApps,setBulkApps] = useState([]);
   const [handoffs,setHandoffs] = useState([]);
   const [confirmReviewed,setConfirmReviewed] = useState(false);
+  const [reviewPacket,setReviewPacket] = useState(null);
+  const [reviewAnswers,setReviewAnswers] = useState({});
+  const [reviewLetter,setReviewLetter] = useState('');
   const headers = (extra={}) => ({...extra, ...(token ? {Authorization:`Bearer ${token}`} : {})});
 
   async function request(path, options={}) {
@@ -130,6 +133,45 @@ function App() {
       setBulkApps([]);setConfirmReviewed(false);await loadDashboard();
     } catch(e) {setNotice(e.message);} finally {setBusy(false);}
   }
+  async function openReview(id) {
+    setBusy(true);
+    try {
+      const packet = await request(`/api/applications/${id}/packet`);
+      setReviewPacket(packet);setReviewAnswers(packet.answers || {});
+      setReviewLetter(packet.cover_letter || '');
+    } catch(e) {setNotice(e.message);} finally {setBusy(false);}
+  }
+  async function prepareReviewLetter() {
+    if(!reviewPacket) return;
+    setBusy(true);
+    try {
+      const entry=apps.find(a=>a.id===reviewPacket.application_id);
+      const result=await request(`/api/jobs/${entry.job_id}/cover-letter`,{method:'POST'});
+      setReviewLetter(result.cover_letter);setNotice('AI draft prepared. Review every statement and save it.');
+    } catch(e){setNotice(e.message);}finally{setBusy(false);}
+  }
+  async function saveReview() {
+    if(!reviewPacket) return;
+    setBusy(true);
+    try {
+      await request(`/api/applications/${reviewPacket.application_id}/content`,{
+        method:'PUT',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({cover_letter:reviewLetter,answers:reviewAnswers})
+      });
+      setReviewPacket({...reviewPacket,cover_letter:reviewLetter,answers:reviewAnswers});
+      setNotice('Application packet saved privately. Nothing was submitted.');await loadDashboard();
+    } catch(e){setNotice(e.message);}finally{setBusy(false);}
+  }
+  function exportReview() {
+    if(!reviewPacket) return;
+    const packet={...reviewPacket,cover_letter:reviewLetter,answers:reviewAnswers,
+      warning:'Private applicant data. Review all answers before submitting to an employer.'};
+    const file=new Blob([JSON.stringify(packet,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(file);
+    const link=document.createElement('a');link.href=url;
+    link.download=`internpilot-application-${reviewPacket.application_id}.json`;
+    link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
   async function changeStatus(id,status) {
     try { await request(`/api/applications/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})}); await loadDashboard(); }
     catch(e){setNotice(e.message);}
@@ -210,7 +252,25 @@ function App() {
     <section className="toolbar apphead"><div><h3><FileText size={19}/> Your application tracker</h3><p>Private to your account. Employer-site handoffs are not submitted applications.</p></div></section>
     <section className="bulk-panel"><div><strong>Review and approve employer-site handoffs</strong><p>Select up to 10 saved drafts below. Check each employer’s application questions and required documents. This feature opens employer posting links; it does not submit them for you.</p><label className="bulk-check"><input type="checkbox" checked={confirmReviewed} onChange={e=>setConfirmReviewed(e.target.checked)}/> I reviewed my selected applications and understand they are not submitted yet.</label></div><button className="primary" disabled={!bulkApps.length||!confirmReviewed||busy} onClick={approveBulkHandoff}>Approve {bulkApps.length} handoffs</button></section>
     {handoffs.length>0&&<section className="panel"><h3>Employer posting pages — application action needed</h3><p className="muted">Open each employer posting and follow its Apply instructions to finish the form. Only mark an application as submitted once the employer confirms receipt.</p><div className="handoff-list">{handoffs.map(h=><div key={h.application_id}><span>{h.company} — {h.title}</span><a href={h.apply_url} target="_blank" rel="noopener noreferrer">Open employer posting <ExternalLink size={14}/></a></div>)}</div></section>}
-    <section className="joblist">{apps.length===0?<p className="muted">Your saved application drafts will appear here.</p>:apps.map(a=><article className="job compact" key={a.id}><label className="bulk-check"><input type="checkbox" checked={bulkApps.includes(a.id)} disabled={['submitted','rejected','withdrawn'].includes(a.status)||(!bulkApps.includes(a.id)&&bulkApps.length>=10)} onChange={()=>toggleApp(a.id)}/> Review for handoff</label><div><h4>{a.title}</h4><p>{a.company} · {a.status}</p><p className="muted small">{a.submission_state === "user_reported_submitted" ? "Submission reported by you; not verified by employer" : a.submission_state === "needs_manual_submission" ? "Awaiting submission on employer site" : "Not submitted"}</p></div><select value={a.status} onChange={e=>changeStatus(a.id,e.target.value)}><option value="draft">Draft</option><option value="ready_for_review">Ready for review</option><option value="submitted">I submitted this</option><option value="rejected">Rejected</option><option value="withdrawn">Withdrawn</option></select><a href={a.url} target="_blank" rel="noreferrer">Posting <ExternalLink size={13}/></a></article>)}</section>
+    <section className="joblist">{apps.length===0?<p className="muted">Your saved application drafts will appear here.</p>:apps.map(a=><article className="job compact" key={a.id}><label className="bulk-check"><input type="checkbox" checked={bulkApps.includes(a.id)} disabled={['submitted','rejected','withdrawn'].includes(a.status)||(!bulkApps.includes(a.id)&&bulkApps.length>=10)} onChange={()=>toggleApp(a.id)}/> Review for handoff</label><div><h4>{a.title}</h4><p>{a.company} · {a.status}</p><p className="muted small">{a.submission_state === "user_reported_submitted" ? "Submission reported by you; not verified by employer" : a.submission_state === "needs_manual_submission" ? "Awaiting submission on employer site" : "Not submitted"}</p></div><select value={a.status} onChange={e=>changeStatus(a.id,e.target.value)}><option value="draft">Draft</option><option value="ready_for_review">Ready for review</option><option value="submitted">I submitted this</option><option value="rejected">Rejected</option><option value="withdrawn">Withdrawn</option></select><button className="secondary" onClick={()=>openReview(a.id)}>Review &amp; prepare</button><a href={a.url} target="_blank" rel="noreferrer">Posting <ExternalLink size={13}/></a></article>)}</section>
+    {reviewPacket&&<div className="overlay"><div className="modal review-modal" role="dialog" aria-label="Application review">
+      <button className="close" onClick={()=>setReviewPacket(null)} aria-label="Close review">×</button>
+      <p className="eyebrow">REVIEW BEFORE SUBMITTING</p>
+      <h2>{reviewPacket.title}</h2><p>{reviewPacket.company} · {reviewPacket.location || 'Location not provided'}</p>
+      <p className="muted small">The information below is private to your account. Nothing has been submitted. The employer may ask additional questions.</p>
+      <h3>Applicant details</h3><p>{reviewPacket.candidate.full_name} · {reviewPacket.candidate.email}</p>
+      <p>{reviewPacket.candidate.university} · {reviewPacket.candidate.program} · Graduation: {reviewPacket.candidate.graduation_year || 'Not provided'}</p>
+      <p>Resume: {reviewPacket.candidate.resume_filename || 'No resume uploaded'}</p>
+      <button className="secondary" disabled={busy} onClick={prepareReviewLetter}>Generate tailored cover letter</button>
+      <label className="field">Cover letter — edit and verify<textarea rows="9" value={reviewLetter} onChange={e=>setReviewLetter(e.target.value)}/></label>
+      <h3>Common application answers (optional)</h3>
+      <p className="muted small">Do not guess legal eligibility or availability. Leave fields blank if unsure.</p>
+      {['Phone','LinkedIn','Portfolio / GitHub','Available start date','Why this company?'].map(k=><label key={k} className="field">{k}<input value={reviewAnswers[k]||''} onChange={e=>setReviewAnswers({...reviewAnswers,[k]:e.target.value})}/></label>)}
+      <div className="review-actions"><button className="primary" disabled={busy} onClick={saveReview}>Save reviewed packet</button>
+      <button className="secondary" onClick={exportReview}>Download application packet</button>
+      <a className="secondary" href={reviewPacket.apply_url} target="_blank" rel="noopener noreferrer">Open employer application</a></div>
+      <p className="muted small">Optional autofill helper instructions are in APPLY_ASSIST_README.md. Resume attachment and employer-specific questions require checking on the actual form. You must click Submit yourself.</p>
+    </div></div>}
     {selected&&<div className="overlay"><div className="modal"><button className="close" onClick={()=>setSelected(null)}>×</button><p className="eyebrow">YOUR APPLICATION WORKSPACE</p><h2>{selected.title}</h2><p>{selected.company} · {selected.location}</p><div className="modalactions"><button className="secondary" onClick={()=>match(selected.id)}><Sparkles size={15}/> AI match</button><button className="secondary" onClick={()=>draft(selected.id)}><FileText size={15}/> Generate cover letter</button></div>{aiResult&&<div className="ai-result"><strong>AI fit score: {aiResult.score}%</strong><p>{aiResult.explanation}</p><p><b>Matched:</b> {aiResult.matched_skills?.join(', ')||'Not specified'}</p><p><b>Skills to develop:</b> {aiResult.missing_skills?.join(', ')||'Not specified'}</p></div>}<label className="field">Cover letter draft<textarea value={letter} onChange={e=>setLetter(e.target.value)} placeholder="Generate a draft or write/edit your own…"/></label><p className="muted small">Review and correct all details. Your final application submission remains your decision.</p><button className="primary wide" onClick={saveDraft}>Save to my applications</button></div></div>}
     <footer>InternPilot AI · Free invite-only early access · Your resume and applications are private to your account.</footer>
   </main>;

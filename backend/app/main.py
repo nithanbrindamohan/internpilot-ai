@@ -128,6 +128,10 @@ class ApplicationCreate(BaseModel):
 class ApplicationUpdate(BaseModel):
     status: str
 
+class ApplicationContentPayload(BaseModel):
+    cover_letter: str = Field(default="", max_length=14000)
+    answers: dict[str, str] = Field(default_factory=dict)
+
 class BulkPreparePayload(BaseModel):
     job_ids: list[str] = Field(min_length=1, max_length=10)
 
@@ -389,6 +393,50 @@ Return only the letter text."""
         return {"cover_letter": letter}
     except Exception as exc:
         raise HTTPException(502, f"Cover-letter generation failed: {str(exc)[:300]}")
+
+@app.get("/api/applications/{application_id}/packet")
+def application_packet(application_id: int, user_id: int = Depends(current_user)):
+    """Private, reviewable packet. No resume body, tokens or passwords leave this endpoint."""
+    with connect() as db:
+        row = db.execute("""SELECT a.id,a.status,a.cover_letter,a.answers_json,
+            j.company,j.title,j.location,j.url,j.description, u.full_name,u.email,
+            u.university,u.program,u.graduation_year,u.location AS candidate_location,
+            u.work_authorization,u.skills,u.resume_filename
+            FROM applications a JOIN jobs j ON j.id=a.job_id
+            JOIN users u ON u.id=a.user_id
+            WHERE a.id=? AND a.user_id=?""", (application_id, user_id)).fetchone()
+    if not row:
+        raise HTTPException(404, "Application not found.")
+    data = dict(row)
+    return {"application_id": data["id"], "status": data["status"],
+            "company": data["company"], "title": data["title"],
+            "location": data["location"], "apply_url": data["url"],
+            "job_description": (data["description"] or "")[:12000],
+            "candidate": {"full_name": data["full_name"], "email": data["email"],
+                "university": data["university"], "program": data["program"],
+                "graduation_year": data["graduation_year"], "location": data["candidate_location"],
+                "work_authorization": data["work_authorization"],
+                "skills": json.loads(data["skills"] or "[]"),
+                "resume_filename": data["resume_filename"]},
+            "cover_letter": data["cover_letter"] or "",
+            "answers": json.loads(data["answers_json"] or "{}"),
+            "submission_confirmed": False}
+
+
+@app.put("/api/applications/{application_id}/content")
+def save_application_content(application_id: int, payload: ApplicationContentPayload,
+                             user_id: int = Depends(current_user)):
+    if len(payload.answers) > 25 or any(not k.strip() or len(k)>140 or len(v)>3000
+                                        for k,v in payload.answers.items()):
+        raise HTTPException(422, "Too many answers or answer text is too long.")
+    with connect() as db:
+        cur = db.execute("""UPDATE applications SET cover_letter=?,answers_json=?
+            WHERE id=? AND user_id=? AND status IN ('draft','ready_for_review')""",
+            (payload.cover_letter, json.dumps(payload.answers), application_id, user_id))
+        if not cur.rowcount:
+            raise HTTPException(404, "Editable application not found.")
+    return {"application_id": application_id, "saved": True, "submitted": False}
+
 
 @app.post("/api/applications/bulk")
 def bulk_prepare(payload: BulkPreparePayload, user_id: int = Depends(current_user)):

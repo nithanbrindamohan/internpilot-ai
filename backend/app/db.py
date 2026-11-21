@@ -88,6 +88,7 @@ def init_db():
             "submission_state": "TEXT NOT NULL DEFAULT 'not_started'",
             "approved_at": "TEXT",
             "submission_method": "TEXT NOT NULL DEFAULT 'employer_site'",
+            "answers_json": "TEXT NOT NULL DEFAULT '{}'",
         }.items():
             if col not in _columns(db, "applications"):
                 db.execute(f"ALTER TABLE applications ADD COLUMN {col} {definition}")
