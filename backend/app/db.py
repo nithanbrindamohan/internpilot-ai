@@ -83,6 +83,15 @@ def init_db():
         )""")
         if "user_id" not in _columns(db, "applications"):
             db.execute("ALTER TABLE applications ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE")
+        # Batch workflow metadata. Existing application records remain intact.
+        for col, definition in {
+            "submission_state": "TEXT NOT NULL DEFAULT 'not_started'",
+            "approved_at": "TEXT",
+            "submission_method": "TEXT NOT NULL DEFAULT 'employer_site'",
+        }.items():
+            if col not in _columns(db, "applications"):
+                db.execute(f"ALTER TABLE applications ADD COLUMN {col} {definition}")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_applications_user_job ON applications(user_id, job_id)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_applications_user ON applications(user_id)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_jobs_active ON jobs(is_active, posted_at)")

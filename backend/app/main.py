@@ -127,6 +127,13 @@ class ApplicationCreate(BaseModel):
 class ApplicationUpdate(BaseModel):
     status: str
 
+class BulkPreparePayload(BaseModel):
+    job_ids: list[str] = Field(min_length=1, max_length=10)
+
+class BulkHandoffPayload(BaseModel):
+    application_ids: list[int] = Field(min_length=1, max_length=10)
+    confirm_reviewed: bool = False
+
 def user_record(user_id: int):
     with connect() as db:
         row = db.execute("""SELECT id,email,full_name,university,program,graduation_year,
@@ -360,6 +367,79 @@ Return only the letter text."""
     except Exception as exc:
         raise HTTPException(502, f"Cover-letter generation failed: {str(exc)[:300]}")
 
+@app.post("/api/applications/bulk")
+def bulk_prepare(payload: BulkPreparePayload, user_id: int = Depends(current_user)):
+    """Create only draft applications; never contact an employer.
+
+    IDs are deduplicated and every existing application belongs to the caller.
+    """
+    ids = list(dict.fromkeys(payload.job_ids))
+    if any(not value.strip() for value in ids):
+        raise HTTPException(400, "Job IDs must not be empty.")
+    created, already_saved, unavailable = [], [], []
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        for job_id in ids:
+            job = db.execute("SELECT id,is_active FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if not job or not job["is_active"]:
+                unavailable.append(job_id)
+                continue
+            existing = db.execute(
+                "SELECT id,status FROM applications WHERE user_id=? AND job_id=? ORDER BY id DESC LIMIT 1",
+                (user_id, job_id),
+            ).fetchone()
+            if existing:
+                already_saved.append({"job_id": job_id, "application_id": existing["id"], "status": existing["status"]})
+                continue
+            cur = db.execute(
+                "INSERT INTO applications(user_id,job_id,cover_letter,notes,status) VALUES(?,?,?,?,?)",
+                (user_id, job_id, "", "", "draft"),
+            )
+            created.append({"job_id": job_id, "application_id": cur.lastrowid})
+    return {"created": created, "already_saved": already_saved, "unavailable": unavailable,
+            "message": "Drafts saved. Review each employer's requirements before applying. No applications were submitted."}
+
+
+@app.post("/api/applications/bulk/handoff")
+def bulk_handoff(payload: BulkHandoffPayload, user_id: int = Depends(current_user)):
+    """Explicitly authorize opening official application pages; NOT a submission receipt.
+
+    Direct provider integrations must be configured and validated separately. This
+    endpoint never sends candidate data to third parties or changes status to submitted.
+    """
+    if not payload.confirm_reviewed:
+        raise HTTPException(400, "Review the applications and explicitly confirm before continuing.")
+    ids = list(dict.fromkeys(payload.application_ids))
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        result = []
+        for app_id in ids:
+            row = db.execute("""SELECT a.id,a.status,j.id AS job_id,j.company,j.title,j.url,j.is_active
+                FROM applications a JOIN jobs j ON a.job_id=j.id
+                WHERE a.id=? AND a.user_id=?""", (app_id, user_id)).fetchone()
+            if not row:
+                raise HTTPException(404, "One or more applications were not found in your account.")
+            if not row["is_active"]:
+                raise HTTPException(409, "One or more job postings are no longer active.")
+            if row["status"] in {"submitted", "rejected", "withdrawn"}:
+                raise HTTPException(409, "One or more applications cannot be sent from their current status.")
+            from urllib.parse import urlparse
+            link = urlparse(row["url"] or "")
+            if link.scheme != "https" or not link.netloc or link.username or link.password:
+                raise HTTPException(409, "One or more jobs do not have a valid HTTPS application link.")
+            result.append({"application_id": row["id"], "job_id": row["job_id"],
+                           "company": row["company"], "title": row["title"],
+                           "apply_url": row["url"], "method": "employer_site",
+                           "submission_confirmed": False})
+        for item in result:
+            db.execute("""UPDATE applications SET status='ready_for_review',
+                submission_state='needs_manual_submission', approved_at=CURRENT_TIMESTAMP,
+                submission_method='employer_site' WHERE id=? AND user_id=?""",
+                (item["application_id"], user_id))
+    return {"applications": result,
+            "message": "Ready for employer posting-page handoff. These applications have NOT been submitted."}
+
+
 @app.post("/api/applications")
 def create_application(payload: ApplicationCreate, user_id: int = Depends(current_user)):
     with connect() as db:
@@ -374,7 +454,8 @@ def create_application(payload: ApplicationCreate, user_id: int = Depends(curren
 def applications(user_id: int = Depends(current_user)):
     with connect() as db:
         rows = db.execute("""SELECT a.id,a.status,a.cover_letter,a.notes,a.created_at,
-            j.company,j.title,j.url,j.location,j.id AS job_id
+            j.company,j.title,j.url,j.location,j.id AS job_id,
+            a.submission_state,a.submission_method,a.approved_at
             FROM applications a JOIN jobs j ON j.id=a.job_id
             WHERE a.user_id=? ORDER BY a.created_at DESC""", (user_id,)).fetchall()
     return [dict(r) for r in rows]
@@ -385,8 +466,10 @@ def update_application(application_id: int, payload: ApplicationUpdate, user_id:
     if payload.status not in allowed:
         raise HTTPException(400, "Unsupported application status.")
     with connect() as db:
-        cur = db.execute("UPDATE applications SET status=? WHERE id=? AND user_id=?",
-                         (payload.status, application_id, user_id))
+        submission_state = "user_reported_submitted" if payload.status == "submitted" else "not_started"
+        cur = db.execute("""UPDATE applications SET status=?,submission_state=?
+            WHERE id=? AND user_id=?""",
+            (payload.status, submission_state, application_id, user_id))
         if cur.rowcount == 0:
             raise HTTPException(404, "Application not found.")
     return {"id": application_id, "status": payload.status}

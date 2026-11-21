@@ -20,6 +20,10 @@ function App() {
   const [loading,setLoading] = useState(false), [notice,setNotice] = useState('');
   const [selected,setSelected] = useState(null), [letter,setLetter] = useState('');
   const [busy,setBusy] = useState(false), [aiResult,setAiResult] = useState(null);
+  const [bulkJobs,setBulkJobs] = useState([]);
+  const [bulkApps,setBulkApps] = useState([]);
+  const [handoffs,setHandoffs] = useState([]);
+  const [confirmReviewed,setConfirmReviewed] = useState(false);
   const headers = (extra={}) => ({...extra, ...(token ? {Authorization:`Bearer ${token}`} : {})});
 
   async function request(path, options={}) {
@@ -30,7 +34,7 @@ function App() {
     return data;
   }
   function logout() {
-    localStorage.removeItem(TOKEN_KEY); setToken(''); setUser(null); setJobs([]); setApps([]);
+    localStorage.removeItem(TOKEN_KEY); setToken(''); setUser(null); setJobs([]); setApps([]); setBulkJobs([]); setBulkApps([]); setHandoffs([]);
     setNotice('You have been signed out.');
   }
   async function loadDashboard() {
@@ -89,6 +93,40 @@ function App() {
     try { await request('/api/applications',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({job_id:selected.id,cover_letter:letter})}); setNotice('Saved to your private application tracker. Nothing was submitted.'); setLetter(''); setSelected(null); await loadDashboard(); }
     catch(e){setNotice(e.message);}
   }
+  function toggleJob(id) {
+    setBulkJobs(current => current.includes(id) ? current.filter(x=>x!==id)
+      : current.length >= 10 ? current : [...current,id]);
+  }
+  function toggleApp(id) {
+    setBulkApps(current => current.includes(id) ? current.filter(x=>x!==id)
+      : current.length >= 10 ? current : [...current,id]);
+    setConfirmReviewed(false);
+  }
+  async function prepareBulk() {
+    if (!bulkJobs.length) return;
+    setBusy(true);
+    try {
+      const result = await request('/api/applications/bulk', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({job_ids:bulkJobs})
+      });
+      setNotice(`${result.created.length} drafts created, ${result.already_saved.length} already saved, ${result.unavailable.length} unavailable. No applications submitted.`);
+      setBulkJobs([]); await loadDashboard();
+    } catch(e) {setNotice(e.message);} finally {setBusy(false);}
+  }
+  async function approveBulkHandoff() {
+    if (!bulkApps.length || !confirmReviewed) return;
+    setBusy(true); setHandoffs([]);
+    try {
+      const result = await request('/api/applications/bulk/handoff', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({application_ids:bulkApps, confirm_reviewed:true})
+      });
+      setHandoffs(result.applications);
+      setNotice(result.message);
+      setBulkApps([]);setConfirmReviewed(false);await loadDashboard();
+    } catch(e) {setNotice(e.message);} finally {setBusy(false);}
+  }
   async function changeStatus(id,status) {
     try { await request(`/api/applications/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})}); await loadDashboard(); }
     catch(e){setNotice(e.message);}
@@ -132,9 +170,12 @@ function App() {
       <form className="upload-row" onSubmit={uploadResume}><div><strong><Upload size={16}/> Resume</strong><p>{user?.has_resume?'A resume is saved to your private account.':'Upload PDF, DOCX or TXT (max 5 MB).'}</p></div><input type="file" accept=".pdf,.docx,.txt" onChange={e=>setResume(e.target.files?.[0]||null)}/><button className="secondary" disabled={busy||!resume}>Upload resume</button></form>
     </section>
     <section className="toolbar"><div><h3><BriefcaseBusiness size={19}/> Opportunity feed</h3><p>Match scores are calculated against your profile.</p></div><div className="filters"><label className="search"><Search size={16}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search title, company, location"/></label><select value={minScore} onChange={e=>setMinScore(Number(e.target.value))}><option value="0">All matches</option><option value="50">50%+ match</option><option value="70">70%+ match</option><option value="85">85%+ match</option></select></div></section>
-    <section className="joblist">{jobs.length===0?<div className="empty"><BriefcaseBusiness size={30}/><h3>No jobs yet</h3><p>Choose Discover internships to check the connected employer career boards. Listings refresh automatically every 6 hours.</p></div>:jobs.map(j=><article className="job" key={j.id}><div className="jobtop"><div><h4>{j.title}</h4><p>{j.company} · {j.location||'Location not listed'}</p></div><span className="score">{j.match_score}% match</span></div>{j.match_explanation&&<p className="muted">{j.match_explanation}</p>}<div className="jobbottom"><span className="source">{j.source}</span><div><a href={j.url} target="_blank" rel="noreferrer">View posting <ExternalLink size={13}/></a><button className="secondary" onClick={()=>{setSelected(j);setLetter('');setAiResult(null)}}><FileText size={14}/> Prepare application</button></div></div></article>)}</section>
-    <section className="toolbar apphead"><div><h3><FileText size={19}/> Your application tracker</h3><p>Private to your account. Applications are never submitted automatically.</p></div></section>
-    <section className="joblist">{apps.length===0?<p className="muted">Your saved application drafts will appear here.</p>:apps.map(a=><article className="job compact" key={a.id}><div><h4>{a.title}</h4><p>{a.company} · {a.status}</p></div><select value={a.status} onChange={e=>changeStatus(a.id,e.target.value)}><option value="draft">Draft</option><option value="ready_for_review">Ready for review</option><option value="submitted">Submitted</option><option value="rejected">Rejected</option><option value="withdrawn">Withdrawn</option></select><a href={a.url} target="_blank" rel="noreferrer">Posting <ExternalLink size={13}/></a></article>)}</section>
+    <section className="bulk-panel"><div><strong>Bulk application preparation</strong><p>Select up to 10 internships below. This creates private drafts; no employer receives any application yet.</p></div><button className="primary" disabled={!bulkJobs.length||busy} onClick={prepareBulk}>Prepare {bulkJobs.length} selected</button></section>
+    <section className="joblist">{jobs.length===0?<div className="empty"><BriefcaseBusiness size={30}/><h3>No jobs yet</h3><p>Choose Discover internships to check the connected employer career boards. Listings refresh automatically every 6 hours.</p></div>:jobs.map(j=><article className="job" key={j.id}><label className="bulk-check"><input type="checkbox" checked={bulkJobs.includes(j.id)} disabled={!bulkJobs.includes(j.id)&&bulkJobs.length>=10} onChange={()=>toggleJob(j.id)}/> Select for bulk preparation</label><div className="jobtop"><div><h4>{j.title}</h4><p>{j.company} · {j.location||'Location not listed'}</p></div><span className="score">{j.match_score}% match</span></div>{j.match_explanation&&<p className="muted">{j.match_explanation}</p>}<div className="jobbottom"><span className="source">{j.source}</span><div><a href={j.url} target="_blank" rel="noreferrer">View posting <ExternalLink size={13}/></a><button className="secondary" onClick={()=>{setSelected(j);setLetter('');setAiResult(null)}}><FileText size={14}/> Prepare application</button></div></div></article>)}</section>
+    <section className="toolbar apphead"><div><h3><FileText size={19}/> Your application tracker</h3><p>Private to your account. Employer-site handoffs are not submitted applications.</p></div></section>
+    <section className="bulk-panel"><div><strong>Review and approve employer-site handoffs</strong><p>Select up to 10 saved drafts below. Check each employer’s application questions and required documents. This feature opens employer posting links; it does not submit them for you.</p><label className="bulk-check"><input type="checkbox" checked={confirmReviewed} onChange={e=>setConfirmReviewed(e.target.checked)}/> I reviewed my selected applications and understand they are not submitted yet.</label></div><button className="primary" disabled={!bulkApps.length||!confirmReviewed||busy} onClick={approveBulkHandoff}>Approve {bulkApps.length} handoffs</button></section>
+    {handoffs.length>0&&<section className="panel"><h3>Employer posting pages — application action needed</h3><p className="muted">Open each employer posting and follow its Apply instructions to finish the form. Only mark an application as submitted once the employer confirms receipt.</p><div className="handoff-list">{handoffs.map(h=><div key={h.application_id}><span>{h.company} — {h.title}</span><a href={h.apply_url} target="_blank" rel="noopener noreferrer">Open employer posting <ExternalLink size={14}/></a></div>)}</div></section>}
+    <section className="joblist">{apps.length===0?<p className="muted">Your saved application drafts will appear here.</p>:apps.map(a=><article className="job compact" key={a.id}><label className="bulk-check"><input type="checkbox" checked={bulkApps.includes(a.id)} disabled={['submitted','rejected','withdrawn'].includes(a.status)||(!bulkApps.includes(a.id)&&bulkApps.length>=10)} onChange={()=>toggleApp(a.id)}/> Review for handoff</label><div><h4>{a.title}</h4><p>{a.company} · {a.status}</p><p className="muted small">{a.submission_state === "user_reported_submitted" ? "Submission reported by you; not verified by employer" : a.submission_state === "needs_manual_submission" ? "Awaiting submission on employer site" : "Not submitted"}</p></div><select value={a.status} onChange={e=>changeStatus(a.id,e.target.value)}><option value="draft">Draft</option><option value="ready_for_review">Ready for review</option><option value="submitted">I submitted this</option><option value="rejected">Rejected</option><option value="withdrawn">Withdrawn</option></select><a href={a.url} target="_blank" rel="noreferrer">Posting <ExternalLink size={13}/></a></article>)}</section>
     {selected&&<div className="overlay"><div className="modal"><button className="close" onClick={()=>setSelected(null)}>×</button><p className="eyebrow">YOUR APPLICATION WORKSPACE</p><h2>{selected.title}</h2><p>{selected.company} · {selected.location}</p><div className="modalactions"><button className="secondary" onClick={()=>match(selected.id)}><Sparkles size={15}/> AI match</button><button className="secondary" onClick={()=>draft(selected.id)}><FileText size={15}/> Generate cover letter</button></div>{aiResult&&<div className="ai-result"><strong>AI fit score: {aiResult.score}%</strong><p>{aiResult.explanation}</p><p><b>Matched:</b> {aiResult.matched_skills?.join(', ')||'Not specified'}</p><p><b>Skills to develop:</b> {aiResult.missing_skills?.join(', ')||'Not specified'}</p></div>}<label className="field">Cover letter draft<textarea value={letter} onChange={e=>setLetter(e.target.value)} placeholder="Generate a draft or write/edit your own…"/></label><p className="muted small">Review and correct all details. Your final application submission remains your decision.</p><button className="primary wide" onClick={saveDraft}>Save to my applications</button></div></div>}
     <footer>InternPilot AI · Free invite-only early access · Your resume and applications are private to your account.</footer>
   </main>;
